@@ -53,7 +53,7 @@ spriteSheet rendr name (RGB r g b) wx wy = do
   return sheet
 
 spriteIndex :: Int -> Int -> SpriteSheet -> SDL.Rectangle CInt
-spriteIndex ix iy (SpriteSheet s wx wy) = do SDL.Rectangle (P (V2 (fromIntegral ix* fromIntegral wx) (fromIntegral iy* fromIntegral wy))) (V2 (fromIntegral wx) (fromIntegral wy))
+spriteIndex ix iy (SpriteSheet s wx wy) = do SDL.Rectangle (P (V2 (fromIntegral ix* fromIntegral wx) (fromIntegral iy* fromIntegral wy))) (V2 (fromIntegral (pred wx)) (fromIntegral (pred wy)))
 
 data MyVars = MyVars {
     _renderer :: SDL.Renderer
@@ -67,6 +67,8 @@ data MyVars = MyVars {
   , _pixelY :: Int
   , _drawPixels :: Grid RGB
   , _dustCells :: Grid (Bool, Bool, Bool, Bool)
+  , _playerShots :: [(Int,Int)]
+  , _playerShotTimer :: Int
 }
 
 gridMap fn g = Map.traverseWithKey (\(V2 x y) k -> fn x y k) g
@@ -84,7 +86,9 @@ myVars r w s = MyVars { _renderer = r,
                         _pixelX = 10,
                         _pixelY = 10,
                         _drawPixels = Map.empty,
-                        _dustCells = Map.empty
+                        _dustCells = Map.empty,
+                        _playerShots = [],
+                        _playerShotTimer = 0
                       }
 
 main :: IO ()
@@ -130,14 +134,11 @@ main = do
   SDL.destroyWindow window
   SDL.quit
 
-setColor :: RGB -> StateT MyVars IO ()
-setColor rgb = currentColor .= rgb
+setColor :: Word8 -> Word8 -> Word8 -> StateT MyVars IO ()
+setColor r g b = currentColor .= (RGB r g b)
 
 draw :: Int -> Int -> StateT MyVars IO ()
 draw x y = ((pixelGrid %=) . (\(RGB r g b) -> (((Pixel (V2 x y) (RGB r g b)) :)))) =<< use currentColor
-
-drawWithColor :: Int -> Int -> RGB -> StateT MyVars IO ()
-drawWithColor x y rgb = setColor rgb >> draw x y
 
 clear :: StateT MyVars IO ()
 clear = pixelGrid .= blankScreen
@@ -152,14 +153,22 @@ blit is ix iy x y = do
 
 program :: (SDL.Scancode -> Bool) -> StateT MyVars IO ()
 program scancodes = do
-  let blitPlayerShip = blit 0 0 0
+  let blitPlayerShip = case (left + right) of
+        -1 -> blit 0 2 0
+        1 -> blit 0 3 0
+        _ -> blit 0 0 0
   clear
-  setColor (RGB 0 0 0)
+  setColor 0 0 0
   pixelX %= (+ (left + right))
   pixelY %= (+ (up + down))
   x <- use pixelX
   y <- use pixelY
   blitPlayerShip x y
+  playerShots %= (filter (\(x,y) -> y > 0) . fmap (\(x,y) -> (x,(pred y))))
+  mapM_ (\(x,y) -> draw x y) =<< use playerShots
+  shotTimer <- use playerShotTimer
+  when (shotTimer > 0) (playerShotTimer %= pred)
+  when ((shotTimer == 0) && shooting) ((playerShots %= (((x+2+right,y+2) :) . ((x+5+left,y+2) :))) >> playerShotTimer .= 30)
   where 
     up = if scancodes SDL.ScancodeW then -1 else 0
     down = if scancodes SDL.ScancodeS then 1 else 0

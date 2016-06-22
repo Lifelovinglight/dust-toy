@@ -167,15 +167,18 @@ program scancodes = do
   x <- use pixelX
   y <- use pixelY
   blitPlayerShip x y
-  playerShots %= (filter (\(x,y) -> y > 0) . fmap (\(x,y) -> (x,(pred . pred $ y))))
-  mapM_ (\(x,y) -> draw x y >> draw x (pred y)) =<< use playerShots
+  playerShots %= filter (\(x,y) -> y > 0)
+  playerShots %= fmap (\(x,y) -> (x,(y-2)))
+  shots <- use playerShots
+  mapM_ (\(x,y) -> draw x y >> draw x (y-1)) shots
   shotTimer <- use playerShotTimer
   if (shotTimer > 0)
-    then (playerShotTimer %= pred)
-    else when shooting ((playerShots %= (((x+2+right,y+2) :) . ((x+5+left,y+2) :))) >> playerShotTimer .= 30)
+    then (playerShotTimer %= (subtract 1))
+    else when shooting (do playerShots %= ([(x+2+right,y+2), (x+5+left,y+2)] ++)
+                           playerShotTimer .= 30)
   engineFlareTimer <- use playerEngineFlareTimer
   if (engineFlareTimer > 0)
-    then playerEngineFlareTimer %= pred
+    then playerEngineFlareTimer %= (subtract 1)
     else (playerEngineFlareTimer .= 20)
   when (engineFlareTimer > 10) (draw (x+3) (y+6) >> draw (x+4) (y+6))
   where 

@@ -27,10 +27,10 @@ screenWidth, screenHeight :: Int
 (screenWidth, screenHeight) = (320, 288)
 
 scale :: CFloat
-scale = 2.0 -- pixels scaled up by a factor of 2
+scale = (fromIntegral 2) -- pixels scaled up by a factor of 3
 
 frameSkip :: Int
-frameSkip = 0 -- 30 fps on a 60 hz screen
+frameSkip = 0 -- 60 fps on a 60 hz screen
 
 blankScreen = []
 
@@ -53,7 +53,7 @@ spriteSheet rendr name (RGB r g b) wx wy = do
   return sheet
 
 spriteIndex :: Int -> Int -> SpriteSheet -> SDL.Rectangle CInt
-spriteIndex ix iy (SpriteSheet s wx wy) = do SDL.Rectangle (P (V2 (fromIntegral ix* fromIntegral wx) (fromIntegral iy* fromIntegral wy))) (V2 (fromIntegral (pred wx)) (fromIntegral (pred wy)))
+spriteIndex ix iy (SpriteSheet s wx wy) = do SDL.Rectangle (P (V2 (fromIntegral ix* fromIntegral wx) (fromIntegral iy* fromIntegral wy))) (V2 (fromIntegral wx) (fromIntegral wy))
 
 data MyVars = MyVars {
     _renderer :: SDL.Renderer
@@ -69,6 +69,7 @@ data MyVars = MyVars {
   , _dustCells :: Grid (Bool, Bool, Bool, Bool)
   , _playerShots :: [(Int,Int)]
   , _playerShotTimer :: Int
+  , _playerEngineFlareTimer :: Int
 }
 
 gridMap fn g = Map.traverseWithKey (\(V2 x y) k -> fn x y k) g
@@ -88,17 +89,18 @@ myVars r w s = MyVars { _renderer = r,
                         _drawPixels = Map.empty,
                         _dustCells = Map.empty,
                         _playerShots = [],
-                        _playerShotTimer = 0
+                        _playerShotTimer = 0,
+                        _playerEngineFlareTimer = 0
                       }
 
 main :: IO ()
 main = do
   SDL.initialize [SDL.InitVideo]
 
-  SDL.HintRenderScaleQuality $= SDL.ScaleLinear
-  do renderQuality <- SDL.get SDL.HintRenderScaleQuality
-     when (renderQuality /= SDL.ScaleLinear) $
-       putStrLn "Warning: Linear texture filtering not enabled!"
+  -- SDL.HintRenderScaleQuality $= SDL.ScaleBest
+  --do renderQuality <- SDL.get SDL.HintRenderScaleQuality
+  --   when (renderQuality /= SDL.ScaleLinear) $
+  --     putStrLn "Warning: Linear texture filtering not enabled!"
   window <-
     SDL.createWindow
       "SDL Tutorial"
@@ -114,6 +116,7 @@ main = do
          })
   SDL.rendererDrawColor renderer $= V4 maxBound maxBound maxBound maxBound
   SDL.rendererScale renderer $= (V2 scale scale)
+  SDL.rendererLogicalSize renderer $= Just (V2 160 144)
   let loop :: Int -> Int -> MyVars -> IO ()
       loop 0 maxTick previousFrame = do
         events <- SDL.pollEvents
@@ -164,12 +167,17 @@ program scancodes = do
   x <- use pixelX
   y <- use pixelY
   blitPlayerShip x y
-  playerShots %= (filter (\(x,y) -> y > 0) . fmap (\(x,y) -> (x,(pred y))))
-  mapM_ (\(x,y) -> draw x y) =<< use playerShots
+  playerShots %= (filter (\(x,y) -> y > 0) . fmap (\(x,y) -> (x,(pred . pred $ y))))
+  mapM_ (\(x,y) -> draw x y >> draw x (pred y)) =<< use playerShots
   shotTimer <- use playerShotTimer
   if (shotTimer > 0)
     then (playerShotTimer %= pred)
     else when shooting ((playerShots %= (((x+2+right,y+2) :) . ((x+5+left,y+2) :))) >> playerShotTimer .= 30)
+  engineFlareTimer <- use playerEngineFlareTimer
+  if (engineFlareTimer > 0)
+    then playerEngineFlareTimer %= pred
+    else (playerEngineFlareTimer .= 20)
+  when (engineFlareTimer > 10) (draw (x+3) (y+6) >> draw (x+4) (y+6))
   where 
     up = if scancodes SDL.ScancodeW then -1 else 0
     down = if scancodes SDL.ScancodeS then 1 else 0

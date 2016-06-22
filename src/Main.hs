@@ -167,8 +167,9 @@ program scancodes = do
   playerShots %= (filter (\(x,y) -> y > 0) . fmap (\(x,y) -> (x,(pred y))))
   mapM_ (\(x,y) -> draw x y) =<< use playerShots
   shotTimer <- use playerShotTimer
-  when (shotTimer > 0) (playerShotTimer %= pred)
-  when ((shotTimer == 0) && shooting) ((playerShots %= (((x+2+right,y+2) :) . ((x+5+left,y+2) :))) >> playerShotTimer .= 30)
+  if (shotTimer > 0)
+    then (playerShotTimer %= pred)
+    else when shooting ((playerShots %= (((x+2+right,y+2) :) . ((x+5+left,y+2) :))) >> playerShotTimer .= 30)
   where 
     up = if scancodes SDL.ScancodeW then -1 else 0
     down = if scancodes SDL.ScancodeS then 1 else 0

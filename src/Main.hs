@@ -180,8 +180,8 @@ program scancodes = do
   if (engineFlareTimer > 0)
     then playerEngineFlareTimer %= (subtract 1)
     else (playerEngineFlareTimer .= 20)
-  when (engineFlareTimer > 10) (do (draw (x+3) (y+6)
-                                    draw (x+4) (y+6)))
+  when (engineFlareTimer > 10) (do draw (x+3) (y+6)
+                                   draw (x+4) (y+6))
   where 
     up = if scancodes SDL.ScancodeW then -1 else 0
     down = if scancodes SDL.ScancodeS then 1 else 0

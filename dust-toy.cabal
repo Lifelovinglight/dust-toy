@@ -22,6 +22,8 @@ executable dust-toy
   build-depends:       base >=4.8 && <4.9,
                        linear,
                        lens,
+                       random,
+                       deepseq,
                        containers,
                        vector,
                        mtl,

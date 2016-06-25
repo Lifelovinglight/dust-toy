@@ -18,6 +18,9 @@ import SDL (($=))
 import qualified SDL
 import Control.Lens
 import Control.Concurrent (yield)
+import Control.DeepSeq
+import System.Random
+import System.IO.Unsafe
 
 #if !MIN_VERSION_base(4,8,0)
 import Control.Applicative
@@ -42,15 +45,15 @@ data Pixel = Pixel (V2 Int) RGB
 
 type Grid a = Map.Map (V2 Int) a
 
-data SpriteSheet = SpriteSheet (IO SDL.Texture) Int Int
+data SpriteSheet = SpriteSheet SDL.Texture Int Int
 
 spriteSheet :: SDL.Renderer -> String -> RGB -> Int -> Int -> IO SpriteSheet
 spriteSheet rendr name (RGB r g b) wx wy = do
   surface <- SDL.loadBMP name
   SDL.surfaceColorKey surface $= (Just (V4 r g b maxBound))
   texture <- SDL.createTextureFromSurface rendr surface
-  let sheet = (SpriteSheet (return texture) wx wy)
-  return sheet
+  SDL.freeSurface surface
+  seq texture (return $ SpriteSheet texture wx wy)
 
 spriteIndex :: Int -> Int -> SpriteSheet -> SDL.Rectangle CInt
 spriteIndex ix iy (SpriteSheet s wx wy) = do SDL.Rectangle (P (V2 (fromIntegral ix* fromIntegral wx) (fromIntegral iy* fromIntegral wy))) (V2 (fromIntegral wx) (fromIntegral wy))
@@ -60,7 +63,7 @@ data MyVars = MyVars {
   , _window :: SDL.Window
   , _pixelGrid :: [Pixel]
   , _currentColor :: RGB
-  , _spriteSheets :: Vector.Vector (IO SpriteSheet)
+  , _spriteSheets :: Vector.Vector SpriteSheet
                      
   -- Add your custom variables below.
   , _pixelX :: Int
@@ -70,6 +73,9 @@ data MyVars = MyVars {
   , _playerShots :: [(Int,Int)]
   , _playerShotTimer :: Int
   , _playerEngineFlareTimer :: Int
+  , _enemySpawnTimer :: Int
+  , _enemies :: [(Int,Int)]
+  , _enemyMoveTimer :: Int
 }
 
 gridMap fn g = Map.traverseWithKey (\(V2 x y) k -> fn x y k) g
@@ -78,20 +84,26 @@ gridSet x y k g = Map.insert (V2 x y) k g
 
 makeLenses ''MyVars
 
-myVars r w s = MyVars { _renderer = r,
-                        _window = w,
-                        _pixelGrid = blankScreen,
-                        _currentColor = (RGB minBound minBound minBound),
-                        _spriteSheets = foldl (\v (name, wx, wy, colorKey) -> Vector.cons (spriteSheet r name colorKey wx wy) v) Vector.empty s,
-                        -- Custom starting values go here.
-                        _pixelX = 10,
-                        _pixelY = 10,
-                        _drawPixels = Map.empty,
-                        _dustCells = Map.empty,
-                        _playerShots = [],
-                        _playerShotTimer = 0,
-                        _playerEngineFlareTimer = 0
-                      }
+myVars :: SDL.Renderer -> SDL.Window -> [(String, Int, Int, RGB)] -> IO MyVars
+myVars r w s = do
+  a <- sequence $! foldl (\v (name, wx, wy, colorKey) -> Vector.cons (spriteSheet r name colorKey wx wy) v) Vector.empty s
+  return $! MyVars { _renderer = r,
+                     _window = w,
+                     _pixelGrid = blankScreen,
+                     _currentColor = (RGB minBound minBound minBound),
+                     _spriteSheets = a,
+                     -- Custom starting values go here.
+                     _pixelX = 10,
+                     _pixelY = 10,
+                     _drawPixels = Map.empty,
+                     _dustCells = Map.empty,
+                     _playerShots = [],
+                     _playerShotTimer = 0,
+                     _playerEngineFlareTimer = 0,
+                     _enemySpawnTimer = 120,
+                     _enemies = [],
+                     _enemyMoveTimer = 0
+                   }
 
 main :: IO ()
 main = do
@@ -132,7 +144,8 @@ main = do
         yield
         unless quit (loop maxTick maxTick thisFrame)
       loop tick maxTick previousFrame = SDL.present renderer >> loop (pred tick) maxTick previousFrame
-  loop 0 frameSkip $ myVars renderer window sprites
+  vars <- myVars renderer window sprites
+  loop 0 frameSkip $! vars
   SDL.destroyRenderer renderer
   SDL.destroyWindow window
   SDL.quit
@@ -149,10 +162,12 @@ clear = pixelGrid .= blankScreen
 blit :: Int -> Int -> Int -> Int -> Int -> StateT MyVars IO ()
 blit is ix iy x y = do
   sheets <- use spriteSheets
-  sheet@(SpriteSheet t wx wy) <- liftIO $ sheets Vector.! is
-  texture <- liftIO t
+  let sheet@(SpriteSheet texture wx wy) = sheets Vector.! is
   rendr <- use renderer
   liftIO $ SDL.copy rendr texture (Just (spriteIndex ix iy sheet)) (Just (SDL.Rectangle (P (V2 (fromIntegral x) (fromIntegral y))) (V2 (fromIntegral wx) (fromIntegral wy))))
+
+randomInt :: Int -> Int -> StateT MyVars IO Int
+randomInt x y = liftIO $! getStdRandom (randomR (x,y))
 
 program :: (SDL.Scancode -> Bool) -> StateT MyVars IO ()
 program scancodes = do
@@ -182,6 +197,20 @@ program scancodes = do
     else (playerEngineFlareTimer .= 20)
   when (engineFlareTimer > 10) (do draw (x+3) (y+6)
                                    draw (x+4) (y+6))
+  spawnTimer <- use enemySpawnTimer
+  if (spawnTimer > 0)
+    then enemySpawnTimer %= (subtract 1)
+    else randomInt 30 120 >>= (enemySpawnTimer .=)
+  enemies %= (filter (\(_,y) -> y < 144))
+  moveTimer <- use enemyMoveTimer
+  if (moveTimer > 0)
+    then enemyMoveTimer %= (subtract 1)
+    else enemyMoveTimer .= 1
+  when (moveTimer == 0) (enemies %= fmap (\(x,y) -> (x,(1 + y))))
+  when (spawnTimer == 0) (do
+                             x <- randomInt 1 151
+                             (enemies %= ((x,1) :)))
+  mapM_ (\(x,y) -> blit 0 1 0 x y) =<< use enemies
   where 
     up = if scancodes SDL.ScancodeW then -1 else 0
     down = if scancodes SDL.ScancodeS then 1 else 0

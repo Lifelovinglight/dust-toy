@@ -109,7 +109,7 @@ main :: IO ()
 main = do
   SDL.initialize [SDL.InitVideo]
 
-  -- SDL.HintRenderScaleQuality $= SDL.ScaleBest
+  SDL.HintRenderScaleQuality $= SDL.ScaleNearest
   --do renderQuality <- SDL.get SDL.HintRenderScaleQuality
   --   when (renderQuality /= SDL.ScaleLinear) $
   --     putStrLn "Warning: Linear texture filtering not enabled!"
@@ -169,6 +169,11 @@ blit is ix iy x y = do
 randomInt :: Int -> Int -> StateT MyVars IO Int
 randomInt x y = liftIO $! getStdRandom (randomR (x,y))
 
+cap :: Int -> Int -> Int -> Int
+cap min max a | a < min = min
+              | a > max = max
+              | otherwise = a
+
 program :: (SDL.Scancode -> Bool) -> StateT MyVars IO ()
 program scancodes = do
   let blitPlayerShip = case (left + right) of
@@ -177,8 +182,8 @@ program scancodes = do
         _ -> blit 0 0 0
   clear
   setColor 0 0 0
-  pixelX %= (+ (left + right))
-  pixelY %= (+ (up + down))
+  pixelX %= (cap 1 ((screenWidth `div` 2)- 9) . (+ (left + right)))
+  pixelY %= (cap 1 ((screenHeight `div` 2) - 9) . (+ (up + down)))
   x <- use pixelX
   y <- use pixelY
   blitPlayerShip x y
@@ -202,6 +207,7 @@ program scancodes = do
     then enemySpawnTimer %= (subtract 1)
     else randomInt 30 120 >>= (enemySpawnTimer .=)
   enemies %= (filter (\(_,y) -> y < 144))
+  -- enemies %= (filter (\(_,y)
   moveTimer <- use enemyMoveTimer
   if (moveTimer > 0)
     then enemyMoveTimer %= (subtract 1)
